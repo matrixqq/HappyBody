@@ -38,3 +38,41 @@
 - 使用 iPhoneOS 26.2 SDK、arm64-apple-ios17.0 target 对全部 App 与核心源码执行 `swiftc -typecheck`，通过且无诊断。
 - 完整 `xcodebuild` 暂被缺少 iOS 平台组件阻断；已通过 Xcode Components 开始下载。类型检查不等于完整打包、签名或真机验证。
 - 已识别已配对的 iPhone，安装仍需完成账户签名配置和手机开发者模式。尚未宣称安装成功。
+
+## 2026-09-17 完整编译验证
+
+- iOS 平台组件已完成安装。
+- `xcodebuild -project HealthLens.xcodeproj -scheme HealthLens -sdk iphoneos -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build` 成功，生成 arm64 iPhone App。
+- 唯一构建警告为未引入 AppIntents.framework，因此跳过 AppIntents 元数据提取；本 App 不使用 AppIntents。
+- 已为项目配置用户 Personal Team，Xcode 已创建 Apple Development 证书和包含 HealthKit 的开发描述文件。
+- 手机开发者模式已开启。首次签名因钥匙串 `errSecInternalComponent` 失败；已重新触发签名并等待用户完成系统钥匙串授权。真机安装及运行仍未验证。
+
+## 2026-09-17 真机安装结果
+
+- 用户完成钥匙串授权后，带开发签名的 `xcodebuild` 返回 BUILD SUCCEEDED。
+- `codesign --verify --deep --strict` 验证通过。开发描述文件包含 HealthKit 权限和已连接测试设备。
+- `devicectl device install app` 返回 App installed，bundle ID 为 `com.matrixchen.healthlens`。
+- 用户完成开发者信任后，`devicectl device process launch` 返回 Launched application。
+- 个人团队描述文件到期时间为 2026-09-24 16:54（Asia/Shanghai），届时需要重新签名安装。
+- 真实健康数据授权、读数对照及建议效果仍需用户在 App 内验证；本次没有代替用户授予健康数据访问权限。
+
+## 1.1 视频参考功能验证（2026-09-17）
+
+- 分析用户提供的 10.7 秒参考视频，提取健康看板、指标趋势、日志与训练负荷等功能。未采用视频中的不透明身体电量、实时压力或身体年龄分数。
+- 真机与模拟器构建通过；最终签名构建版本为 1.1 (2)，codesign 严格验证通过。
+- 原生 XCTest 15 项通过：原有 13 项训练规则测试，加上旧版私有记录兼容与日志同日更新/跨日保留/序列化往返测试。
+- 模拟器欢迎页显示成功；后续 UI 自动化连接反复超时，尚未完成所有页面的视觉与交互回归。
+- devicectl 已成功覆盖安装新版到 iPhone。首次尝试启动新版因手机锁屏被系统拒绝，等待用户解锁后验证。
+- 未读取或导出用户真实健康结果；新增健康权限由用户自行选择，真实读数一致性仍需与健康 App 对照。
+
+- 用户解锁后新版启动成功，devicectl 返回 Launched application；真机进程检查确认 HealthLens 持续运行。
+
+## HappyBody 1.1.1 (3), 2026-09-17
+
+- Independent concurrent HealthKit queries publish partial results. A failed metric no longer discards other results. Queries time out after 20 seconds with single-completion protection.
+- Real reads clear stale/demo values; progress, timestamps, coverage and errors are visible. Refresh requests received while busy are coalesced and retried. Foreground HealthKit changes trigger refresh.
+- Advice summaries update even without a current check-in; personalized training adjustment still requires the daily check-in.
+- Dashboard HRV uses same-source all-day medians; advice continues using non-manual morning readings.
+- Display name changed to HappyBody; bundle ID and storage path preserved.
+- Signed device build succeeded, strict codesign verification passed. Installed and launched on the connected iPhone.
+- Per user request, no further simulator checks. Actual personal HealthKit refresh results still require checking on the phone.

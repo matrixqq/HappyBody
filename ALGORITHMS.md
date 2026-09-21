@@ -60,3 +60,17 @@
 - 使用当前设备时区；跨时区旅行的数据需人工审视。
 - [HealthKit 读取授权机制](https://developer.apple.com/documentation/healthkit/authorizing-access-to-health-data)：完成授权页不代表已获得读取权限，空结果可能是拒绝或没有数据。
 - 权限只读；无后台/网络分析。源码不包含用户真实健康数据。
+
+## 1.1 指标看板与日志
+
+- 步数、活动能量、楼层数通过 HKStatisticsCollectionQuery 的 cumulativeSum 按本地日历日统计；不直接跨设备相加原始样本。无统计值的日期不补零，当天为未完成累计。
+- 新增离散指标按同一来源取每日中位数，显示记录日期；读数不存在时不给数值或正常结论。体脂率与血氧的 HealthKit 比例乘 100 转为百分数。最大摄氧量单位为 mL/(kg·min)。
+- 手腕温度不是核心体温；活动能量不是总能量缺口；VO2max 不转换为身体年龄。
+- 新增指标仅展示，不加入现有训练建议的触发条件。生活标签与备注也不产生因果推断。
+- 日志使用原有本机受保护文件，兼容旧版单条自评；按自然日更新，跨日保留。
+
+Apple 官方依据：
+- https://developer.apple.com/documentation/healthkit/hkstatisticscollectionquery
+- https://developer.apple.com/videos/play/wwdc2020/10664/
+- https://developer.apple.com/documentation/healthkit/hkquantitytypeidentifier/applesleepingwristtemperature
+- https://developer.apple.com/documentation/healthkit/hkquantitytypeidentifier/vo2max

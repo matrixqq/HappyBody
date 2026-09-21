@@ -126,7 +126,7 @@ public struct RecoveryInput: Sendable {
     }
 }
 public enum TrainingEngine {
-    public static let version = "1.0.0"
+    public static let version = "1.1.1"
     // Exploratory product rule, not a clinically validated HRV training protocol.
     // 28 baseline days excluding current/recent 7; at least 14 observed baseline days.
     // Median and 1.4826*MAD on log(SDNN); sustained signal needs >=2 of 3 recent days
@@ -154,7 +154,20 @@ public enum TrainingEngine {
     public static func advice(_ input: RecoveryInput) -> Advice {
         let c = input.calendar; let today = c.startOfDay(for: input.now)
         let check = input.checkIn.flatMap { c.isDate($0.date, inSameDayAs: today) && $0.date <= input.now && (1...5).contains($0.fatigue) && (1...5).contains($0.soreness) ? $0 : nil }
-        guard let check else { return Advice(level: .checkIn, title: "先记录今天的感受", action: "完成疲劳、酸痛和身体不适的简短记录，再生成今天的建议。", evidence: ["昨天的感受不能代替今天的状态。"], confidence: "缺少今日自评") }
+        guard let check else {
+            var evidence: [String] = []
+            if let sleep = input.sleep.last(where: { c.isDate($0.date, inSameDayAs: today) && $0.value.isFinite && $0.value > 0 }) {
+                evidence.append(String(format: "最近睡眠窗口 %.1f 小时；漏戴可能低估。", sleep.value))
+            } else { evidence.append("没有今日睡眠窗口记录。") }
+            let hrv = signal(input.hrv, lower: true, logTransform: true, now: input.now, calendar: c)
+            let hr = signal(input.restingHR, lower: false, logTransform: false, now: input.now, calendar: c)
+            evidence.append("晨间 HRV 基线 \(hrv.baselineDays)/28 天；静息心率基线 \(hr.baselineDays)/28 天。")
+            if hrv.unusual || hr.unusual { evidence.append("检测到个人趋势持续偏离，需结合今天的感受再判断。") }
+            let week = Weekly.summarize(input.sessions, ratings: input.ratings, now: input.now, calendar: c)
+            evidence.append("近 7 天 \(week.totalSessions) 次训练，\(week.ratedSessions) 次已评分。")
+            let hasData = !input.hrv.isEmpty || !input.restingHR.isEmpty || !input.sleep.isEmpty || !input.sessions.isEmpty
+            return Advice(level: .checkIn, title: hasData ? "数据已更新，补充今天的感受" : "先读取数据并记录今天的感受", action: "数据摘要会随读取更新。还需确认今天的疲劳、酸痛和身体不适，才能给出个体训练调整；昨天的自评不能代替今天。", evidence: evidence, confidence: "数据摘要已计算 · 今日自评待完成")
+        }
         if check.warningSymptoms { return Advice(level: .medical, title: "暂停锻炼，优先寻求医疗帮助", action: "胸痛、晕厥或明显异常气短不应由训练算法判断。若症状正在发生、严重或持续，请立即联系当地急救服务。", evidence: ["你报告了需优先处理的症状；其他指标不能抵消这一信息。"], confidence: "由症状触发，不作诊断") }
         if check.feelsUnwell { return Advice(level: .rest, title: "今天优先休息", action: "身体不适或发热时，先暂停原定训练；症状持续、加重或令你担忧时请咨询医生。", evidence: ["你报告今天身体不适。"], confidence: "依据今日自评") }
         let hrv = signal(input.hrv, lower: true, logTransform: true, now: input.now, calendar: c)
@@ -213,5 +226,35 @@ public enum Weekly {
             if s.kind == .strength && r.majorMuscleGroups && [.moderate, .vigorous].contains(r.intensity) { strength.insert(calendar.startOfDay(for: s.start)) }
         }
         return WeekSummary(equivalentMinutes: minutes, strengthDays: strength.count, unknownAerobicSessions: unknown, recordedLoad: load, ratedSessions: rated, totalSessions: valid.count)
+    }
+}
+
+
+public struct JournalEntry: Codable, Identifiable, Sendable {
+    public var id: Date { checkIn.date }
+    public var checkIn: CheckIn
+    public var tags: [String]
+    public var note: String
+    public init(checkIn: CheckIn, tags: [String] = [], note: String = "") {
+        self.checkIn = checkIn; self.tags = tags; self.note = note
+    }
+}
+public struct PrivateNotes: Codable {
+    public var ratings: [String: SessionRating] = [:]
+    public var checkIn: CheckIn? = nil
+    public var journal: [JournalEntry]? = nil
+    public init() {}
+    public var entries: [JournalEntry] {
+        var values = journal ?? []
+        if let checkIn, !values.contains(where: { Calendar.current.isDate($0.checkIn.date, inSameDayAs: checkIn.date) }) {
+            values.append(JournalEntry(checkIn: checkIn))
+        }
+        return values.sorted { $0.checkIn.date > $1.checkIn.date }
+    }
+    public mutating func record(_ entry: JournalEntry, calendar: Calendar = .current) {
+        var history = entries.filter { !calendar.isDate($0.checkIn.date, inSameDayAs: entry.checkIn.date) }
+        history.append(entry)
+        journal = history.sorted { $0.checkIn.date > $1.checkIn.date }
+        checkIn = journal?.first?.checkIn
     }
 }

@@ -91,4 +91,23 @@ final class TrainingCoreTests: XCTestCase {
         let start = day(offset).addingTimeInterval(8 * 3600)
         return Session(id: id, start: start, end: start.addingTimeInterval(1800), minutes: 30, kind: kind, title: "测试", source: "fixture")
     }
+
+    func testLegacyNotesMigrateWithoutLosingRatingsOrCheckIn() throws {
+        let legacy = "{\"ratings\":{\"workout\":{\"rpe\":5,\"intensity\":\"moderate\",\"majorMuscleGroups\":false}},\"checkIn\":{\"date\":1000,\"fatigue\":3,\"soreness\":2,\"feelsUnwell\":false,\"warningSymptoms\":false}}"
+        let notes = try JSONDecoder().decode(PrivateNotes.self, from: Data(legacy.utf8))
+        XCTAssertEqual(notes.ratings["workout"]?.rpe, 5)
+        XCTAssertEqual(notes.entries.count, 1)
+        XCTAssertEqual(notes.entries.first?.checkIn.fatigue, 3)
+    }
+    func testJournalUpdatesSameDayAndRetainsHistoryAfterRoundTrip() throws {
+        var notes = PrivateNotes()
+        notes.record(JournalEntry(checkIn: CheckIn(date: day(-1)), tags: ["旅行"]), calendar: calendar)
+        notes.record(JournalEntry(checkIn: CheckIn(date: now), note: "first"), calendar: calendar)
+        notes.record(JournalEntry(checkIn: CheckIn(date: now.addingTimeInterval(60), fatigue: 4), tags: ["晚睡"], note: "updated"), calendar: calendar)
+        let restored = try JSONDecoder().decode(PrivateNotes.self, from: JSONEncoder().encode(notes))
+        XCTAssertEqual(restored.entries.count, 2)
+        XCTAssertEqual(restored.entries.first?.note, "updated")
+        XCTAssertEqual(restored.checkIn?.fatigue, 4)
+        XCTAssertEqual(restored.entries.last?.tags, ["旅行"])
+    }
 }
